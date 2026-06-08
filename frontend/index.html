@@ -409,6 +409,10 @@
         <input type="text" id="signupUser" placeholder="e.g. john_doe"/>
       </div>
       <div class="field">
+        <label>Email Address</label>
+        <input type="email" id="signupEmail" placeholder="e.g. john@example.com"/>
+      </div>
+      <div class="field">
         <label>Create Password</label>
         <input type="password" id="signupPass" placeholder="••••••••"/>
       </div>
@@ -596,13 +600,14 @@ async function doLogin() {
 async function doSignup() {
   const user = document.getElementById('signupUser').value.trim();
   const pass = document.getElementById('signupPass').value;
+  const email = document.getElementById('signupEmail').value.trim();
   const err  = document.getElementById('loginErr');
   err.textContent = '';
   try {
     const r = await fetch('/api/signup', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({username: user, password: pass})
+      body: JSON.stringify({username: user, password: pass, email: email})
     });
     const d = await r.json();
     if (!r.ok) { err.textContent = d.error; return; }
