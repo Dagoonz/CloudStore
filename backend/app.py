@@ -35,7 +35,7 @@ s = URLSafeTimedSerializer(app.secret_key)
 MAX_FILE_SIZE_MB = 2048
 app.config['MAX_CONTENT_LENGTH'] = 2048 * 1024 * 1024
 
-from services import r2_storage
+from services import supabase_storage
 import uuid
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ def upload():
     display_name = f"{full_folder}{file.filename}"
 
     try:
-        encrypted_size = r2_storage.upload_file(storage_key, file.stream, content_type)
+        encrypted_size = supabase_storage.upload_file(storage_key, file.stream, content_type)
         
         # Save metadata to MongoDB
         mongo.db.files.insert_one({
@@ -272,7 +272,7 @@ def stream_file(file_id):
         return "Forbidden", 403
         
     try:
-        file_stream = r2_storage.download_file(file_record["storageKey"])
+        file_stream = supabase_storage.download_file(file_record["storageKey"])
         return send_file(
             file_stream, 
             as_attachment=True, 
@@ -296,7 +296,7 @@ def delete(bucket, filename):
         return jsonify({"error": "Access denied"}), 403
 
     try:
-        r2_storage.delete_file(file_record["storageKey"])
+        supabase_storage.delete_file(file_record["storageKey"])
         mongo.db.files.delete_one({"fileId": filename})
         return jsonify({"message": f"'{file_record['originalName']}' deleted successfully"})
     except Exception as e:
@@ -340,9 +340,9 @@ def create_folder():
     storage_key = f"users/{user}/{file_id}"
     display_name = f"{folder_name}/"
     
-    # Upload an empty encrypted file to R2 just to hold the place, or just metadata
+    # Upload an empty encrypted file to Supabase just to hold the place, or just metadata
     try:
-        r2_storage.upload_file(storage_key, io.BytesIO(b""), "application/x-directory")
+        supabase_storage.upload_file(storage_key, io.BytesIO(b""), "application/x-directory")
         mongo.db.files.insert_one({
             "fileId": file_id,
             "userId": user,
@@ -389,8 +389,8 @@ def health():
     except:
         pass
         
-    if r2_storage.s3_client:
-        status["r2"] = "connected"
+    if supabase_storage.supabase_client:
+        status["supabase"] = "connected"
         
     return jsonify(status)
 
