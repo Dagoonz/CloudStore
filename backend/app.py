@@ -115,8 +115,9 @@ def forgot_password():
         return jsonify({"message": "If an account with that email exists, a reset link has been sent."})
         
     token = s.dumps(email, salt='password-reset-salt')
-    # Use url_for with _external=True for a full absolute URL in production
-    reset_link = url_for('reset_password_page', token=token, _external=True)
+    # Generate link to the frontend where the token will be parsed
+    frontend_url = request.headers.get("Origin", "https://cloudstore-one.vercel.app")
+    reset_link = f"{frontend_url}/?reset_token={token}"
     
     try:
         msg = Message("Password Reset Request", recipients=[email])

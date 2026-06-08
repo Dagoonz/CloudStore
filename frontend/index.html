@@ -394,7 +394,8 @@
       <button class="btn-primary" onclick="doLogin()">Sign In</button>
       
       <div class="auth-switch">
-        Don't have an account? <a href="#" onclick="toggleAuth(true)">Sign Up</a>
+        Don't have an account? <a href="#" onclick="toggleAuth('signup')">Sign Up</a><br>
+        <a href="#" style="display:inline-block;margin-top:8px;" onclick="toggleAuth('forgot')">Forgot your password?</a>
       </div>
     </div>
 
@@ -415,7 +416,41 @@
       <button class="btn-primary" onclick="doSignup()">Create Account</button>
       
       <div class="auth-switch">
-        Already have an account? <a href="#" onclick="toggleAuth(false)">Sign In</a>
+        Already have an account? <a href="#" onclick="toggleAuth('login')">Sign In</a>
+      </div>
+    </div>
+
+    <!-- Forgot Password Form -->
+    <div id="forgotForm" style="display:none">
+      <h1>Reset Password</h1>
+      <p>Enter your email to get a reset link</p>
+      
+      <div class="field">
+        <label>Email Address</label>
+        <input type="email" id="forgotEmail" placeholder="e.g. john@example.com"/>
+      </div>
+      
+      <button class="btn-primary" onclick="doForgotPassword()">Send Reset Link</button>
+      
+      <div class="auth-switch">
+        Remembered it? <a href="#" onclick="toggleAuth('login')">Sign In</a>
+      </div>
+    </div>
+
+    <!-- Reset Password Form (Shown if token exists) -->
+    <div id="resetForm" style="display:none">
+      <h1>New Password</h1>
+      <p>Please enter your new password</p>
+      
+      <div class="field">
+        <label>New Password</label>
+        <input type="password" id="resetPass" placeholder="••••••••"/>
+      </div>
+      
+      <button class="btn-primary" onclick="doResetPassword()">Update Password</button>
+      
+      <div class="auth-switch">
+        <a href="#" onclick="toggleAuth('login')">Back to Login</a>
       </div>
     </div>
 
@@ -584,11 +619,50 @@ function onAuthSuccess(username) {
   loadStats();
 }
 
-function toggleAuth(showSignup) {
-  document.getElementById('loginForm').style.display = showSignup ? 'none' : 'block';
-  document.getElementById('signupForm').style.display = showSignup ? 'block' : 'none';
-  document.getElementById('loginHint').style.display = showSignup ? 'none' : 'block';
+function toggleAuth(view) {
+  document.getElementById('loginForm').style.display = view === 'login' ? 'block' : 'none';
+  document.getElementById('signupForm').style.display = view === 'signup' ? 'block' : 'none';
+  document.getElementById('forgotForm').style.display = view === 'forgot' ? 'block' : 'none';
+  document.getElementById('resetForm').style.display = view === 'reset' ? 'block' : 'none';
   document.getElementById('loginErr').textContent = '';
+}
+
+async function doForgotPassword() {
+  const email = document.getElementById('forgotEmail').value.trim();
+  const err = document.getElementById('loginErr');
+  err.textContent = '';
+  try {
+    const r = await fetch('/api/forgot-password', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email: email})
+    });
+    const d = await r.json();
+    if (!r.ok) { err.textContent = d.error; return; }
+    toast('✓ ' + d.message, 'success');
+    toggleAuth('login');
+  } catch(e) { err.textContent = 'Connection error'; }
+}
+
+async function doResetPassword() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('reset_token');
+  const pass = document.getElementById('resetPass').value;
+  const err = document.getElementById('loginErr');
+  err.textContent = '';
+  try {
+    const r = await fetch('/api/reset-password', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({token: token, password: pass})
+    });
+    const d = await r.json();
+    if (!r.ok) { err.textContent = d.error; return; }
+    toast('✓ Password updated!', 'success');
+    // Remove token from URL
+    window.history.replaceState({}, document.title, window.location.pathname);
+    toggleAuth('login');
+  } catch(e) { err.textContent = 'Connection error'; }
 }
 
 async function doLogout() {
@@ -601,10 +675,17 @@ document.getElementById('loginPass').addEventListener('keydown', e => { if(e.key
 
 // Check session on load
 (async () => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('reset_token')) {
+    toggleAuth('reset');
+    return;
+  }
   const r = await fetch('/api/me');
   const d = await r.json();
   if (d.user) {
     onAuthSuccess(d.user);
+  } else {
+    toggleAuth('login');
   }
 })();
 
