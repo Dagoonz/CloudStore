@@ -327,9 +327,8 @@ def upload():
 @login_required
 def list_files():
     user = session["user"]
-    is_admin = (user == "admin")
     
-    query = {} if is_admin else {"userId": user}
+    query = {"userId": user}
     files_cursor = mongo.db.files.find(query)
     
     result = []
@@ -474,9 +473,8 @@ def create_folder():
 def stats():
     """Return storage stats from MongoDB."""
     user = session["user"]
-    is_admin = (user == "admin")
     
-    query = {} if is_admin else {"userId": user}
+    query = {"userId": user}
     files = mongo.db.files.find(query)
     
     total_size = 0
@@ -488,6 +486,74 @@ def stats():
     return jsonify({
         "all": {"count": count, "total_size": total_size}
     })
+
+# ─── Settings Routes ─────────────────────────────────────────────────────────
+
+@app.route("/api/settings/password", methods=["POST"])
+@login_required
+def change_password():
+    data = request.get_json()
+    old_password = data.get("old_password", "")
+    new_password = data.get("new_password", "")
+    user = session["user"]
+    
+    if len(new_password) < 6:
+        return jsonify({"error": "New password must be at least 6 characters"}), 400
+        
+    db_user = mongo.db.users.find_one({"username": user})
+    if not db_user:
+        return jsonify({"error": "User not found"}), 404
+        
+    old_hashed = hashlib.sha256(old_password.encode()).hexdigest()
+    if db_user.get("password_hash") != old_hashed:
+        return jsonify({"error": "Incorrect current password"}), 400
+        
+    new_hashed = hashlib.sha256(new_password.encode()).hexdigest()
+    mongo.db.users.update_one({"username": user}, {"$set": {"password_hash": new_hashed}})
+    return jsonify({"message": "Password changed successfully"})
+
+@app.route("/api/settings/username", methods=["POST"])
+@login_required
+def change_username():
+    data = request.get_json()
+    new_username = data.get("new_username", "").strip().lower()
+    old_username = session["user"]
+    
+    if not new_username:
+        return jsonify({"error": "Username is required"}), 400
+    if new_username == old_username:
+        return jsonify({"error": "New username must be different"}), 400
+        
+    if mongo.db.users.find_one({"username": new_username}):
+        return jsonify({"error": "Username already taken"}), 400
+        
+    # Update users
+    mongo.db.users.update_one({"username": old_username}, {"$set": {"username": new_username}})
+    
+    # Update files ownership (Supabase storage paths remain the same to avoid expensive moves)
+    mongo.db.files.update_many({"userId": old_username}, {"$set": {"userId": new_username}})
+    
+    session["user"] = new_username
+    return jsonify({"message": "Username changed successfully", "user": new_username})
+
+@app.route("/api/settings/account", methods=["DELETE"])
+@login_required
+def delete_account():
+    user = session["user"]
+    
+    # Optional: Delete all files from Supabase
+    user_files = list(mongo.db.files.find({"userId": user}))
+    for f in user_files:
+        try:
+            supabase_storage.delete_file(f["storageKey"])
+        except Exception:
+            pass # Ignore deletion errors to ensure the account gets deleted
+            
+    mongo.db.files.delete_many({"userId": user})
+    mongo.db.users.delete_one({"username": user})
+    
+    session.pop("user", None)
+    return jsonify({"message": "Account deleted successfully"})
 
 @app.route("/api/health")
 def health():
