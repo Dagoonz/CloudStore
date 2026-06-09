@@ -25,6 +25,8 @@ app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER')
 
 mongo = PyMongo(app)
+if mongo.db is None:
+    mongo.db = mongo.cx["cloudstore"]
 mail = Mail(app)
 
 # Token Serializer for password resets
