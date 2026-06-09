@@ -1,17 +1,13 @@
 from flask import Flask, request, jsonify, send_file, session, redirect, url_for
-from datetime import timedelta, datetime
+from datetime import datetime
 import io
 import os
 from flask_cors import CORS
 import hashlib
 import json
 import socket
-import threading
 from functools import wraps
 from flask_pymongo import PyMongo
-from itsdangerous import URLSafeTimedSerializer
-import random
-from flask_mail import Mail, Message
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True) # Allow frontend to make cross-origin requests
@@ -20,24 +16,9 @@ app.secret_key = os.getenv("FLASK_SECRET", "supersecretkey123")
 # ─── Extensions Configuration ────────────────────────────────────────────────
 app.config['MONGO_URI'] = os.getenv('MONGO_URI', 'mongodb://localhost:27017/cloudstore').strip('"').strip("'")
 
-app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
-app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
-app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'true').lower() in ['true', '1', 't']
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', '').strip('"').strip("'") if os.getenv('MAIL_USERNAME') else None
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '').strip('"').strip("'") if os.getenv('MAIL_PASSWORD') else None
-
-sender_env = os.getenv('MAIL_DEFAULT_SENDER')
-if sender_env:
-    sender_env = sender_env.strip('"').strip("'")
-app.config['MAIL_DEFAULT_SENDER'] = sender_env or f"CloudStore <{app.config['MAIL_USERNAME']}>"
-
 mongo = PyMongo(app)
 if mongo.db is None:
     mongo.db = mongo.cx["cloudstore"]
-mail = Mail(app)
-
-# Token Serializer for password resets
-s = URLSafeTimedSerializer(app.secret_key)
 
 # User Store is now managed by MongoDB.
 
@@ -46,13 +27,6 @@ app.config['MAX_CONTENT_LENGTH'] = 2048 * 1024 * 1024
 
 from services import supabase_storage
 import uuid
-
-def send_email_async(app_instance, msg):
-    with app_instance.app_context():
-        try:
-            mail.send(msg)
-        except Exception as e:
-            print(f"Failed to send async email: {e}")
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -123,146 +97,16 @@ def signup():
     existing_email = mongo.db.users.find_one({"email": email})
     if existing_email:
         return jsonify({"error": "Email already in use"}), 400
-    
-    # Generate 6-digit OTP
-    otp = str(random.randint(100000, 999999))
+
     hashed = hashlib.sha256(password.encode()).hexdigest()
-    
-    # Store in pending_users with expiration (e.g. 10 mins)
-    mongo.db.pending_users.update_one(
-        {"email": email},
-        {"$set": {
-            "username": username,
-            "password_hash": hashed,
-            "email": email,
-            "otp": otp,
-            "createdAt": datetime.utcnow()
-        }},
-        upsert=True
-    )
-    
-    # Send OTP Email
-    if app.config.get('MAIL_USERNAME'):
-        msg = Message("Your CloudStore Verification Code", recipients=[email])
-        msg.body = f"Hello {username},\n\nYour CloudStore verification code is: {otp}\n\nThis code will expire in 10 minutes."
-        threading.Thread(target=send_email_async, args=(app, msg)).start()
-        return jsonify({"message": "OTP sent to email", "require_otp": True, "email": email})
-    else:
-        # Fallback if mail not configured
-        return jsonify({"error": "Email service not configured"}), 500
 
-@app.route("/api/verify-otp", methods=["POST"])
-def verify_otp():
-    data = request.get_json()
-    email = data.get("email", "").strip()
-    otp = data.get("otp", "").strip()
-    
-    if not email or not otp:
-        return jsonify({"error": "Email and OTP required"}), 400
-        
-    pending = mongo.db.pending_users.find_one({"email": email})
-    if not pending:
-        return jsonify({"error": "Session expired or invalid email"}), 400
-        
-    # Check expiration (10 minutes)
-    if datetime.utcnow() - pending["createdAt"] > timedelta(minutes=10):
-        mongo.db.pending_users.delete_one({"email": email})
-        return jsonify({"error": "OTP has expired. Please sign up again."}), 400
-        
-    if pending["otp"] != otp:
-        return jsonify({"error": "Invalid verification code"}), 400
-        
-    # OTP is correct, move to users
     mongo.db.users.insert_one({
-        "username": pending["username"],
-        "password_hash": pending["password_hash"],
-        "email": pending["email"]
+        "username": username,
+        "password_hash": hashed,
+        "email": email
     })
-    mongo.db.pending_users.delete_one({"email": email})
-    
-    # Send Welcome Email
-    msg = Message("Welcome to CloudStore!", recipients=[pending["email"]])
-    msg.body = f"Hello {pending['username']},\n\nWelcome to CloudStore! Your account has been created successfully."
-    threading.Thread(target=send_email_async, args=(app, msg)).start()
-        
-    session["user"] = pending["username"]
-    return jsonify({"message": "Account created successfully", "user": pending["username"]})
 
-@app.route("/api/forgot-password", methods=["POST"])
-def forgot_password():
-    data = request.get_json()
-    email = data.get("email", "").strip()
-    if not email:
-        return jsonify({"error": "Email is required"}), 400
-        
-    user = mongo.db.users.find_one({"email": email})
-    if not user:
-        # Prevent email enumeration
-        return jsonify({"message": "If an account with that email exists, an OTP has been sent.", "require_otp": True, "email": email})
-        
-    otp = str(random.randint(100000, 999999))
-    
-    mongo.db.password_resets.update_one(
-        {"email": email},
-        {"$set": {
-            "email": email,
-            "otp": otp,
-            "createdAt": datetime.utcnow()
-        }},
-        upsert=True
-    )
-    
-    if app.config.get('MAIL_USERNAME'):
-        msg = Message("Your CloudStore Password Reset Code", recipients=[email])
-        msg.body = f"Hello {user['username']},\n\nYour CloudStore password reset code is: {otp}\n\nThis code is valid for 10 minutes. If you did not request this, please ignore this email."
-        threading.Thread(target=send_email_async, args=(app, msg)).start()
-        
-    return jsonify({"message": "If an account with that email exists, an OTP has been sent.", "require_otp": True, "email": email})
-
-@app.route("/api/verify-reset-otp", methods=["POST"])
-def verify_reset_otp():
-    data = request.get_json()
-    email = data.get("email", "").strip()
-    otp = data.get("otp", "").strip()
-    
-    if not email or not otp:
-        return jsonify({"error": "Email and OTP required"}), 400
-        
-    reset = mongo.db.password_resets.find_one({"email": email})
-    if not reset:
-        return jsonify({"error": "Session expired or invalid email"}), 400
-        
-    if datetime.utcnow() - reset["createdAt"] > timedelta(minutes=10):
-        mongo.db.password_resets.delete_one({"email": email})
-        return jsonify({"error": "OTP has expired. Please request a new one."}), 400
-        
-    if reset["otp"] != otp:
-        return jsonify({"error": "Invalid verification code"}), 400
-        
-    mongo.db.password_resets.delete_one({"email": email})
-    token = s.dumps(email, salt='password-reset-salt')
-    return jsonify({"message": "OTP verified", "reset_token": token})
-
-@app.route("/api/reset-password", methods=["POST"])
-def reset_password():
-    data = request.get_json()
-    token = data.get("token")
-    new_password = data.get("password")
-    
-    if not token or not new_password:
-        return jsonify({"error": "Token and new password are required"}), 400
-    if len(new_password) < 6:
-        return jsonify({"error": "Password must be at least 6 characters"}), 400
-        
-    try:
-        email = s.loads(token, salt='password-reset-salt', max_age=3600)
-    except Exception as e:
-        return jsonify({"error": "The reset link is invalid or has expired"}), 400
-        
-    hashed = hashlib.sha256(new_password.encode()).hexdigest()
-    mongo.db.users.update_one({"email": email}, {"$set": {"password_hash": hashed}})
-    
-    return jsonify({"message": "Password has been successfully updated"})
+    return jsonify({"message": "Account created successfully", "user": username})
 
 @app.route("/api/logout", methods=["POST"])
 def logout():
