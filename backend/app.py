@@ -15,7 +15,7 @@ CORS(app, supports_credentials=True) # Allow frontend to make cross-origin reque
 app.secret_key = os.getenv("FLASK_SECRET", "supersecretkey123")
 
 # ─── Extensions Configuration ────────────────────────────────────────────────
-app.config['MONGO_URI'] = os.getenv('MONGO_URI', 'mongodb://localhost:27017/cloudstore')
+app.config['MONGO_URI'] = os.getenv('MONGO_URI', 'mongodb://localhost:27017/cloudstore').strip('"').strip("'")
 
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
