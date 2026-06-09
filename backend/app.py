@@ -23,9 +23,13 @@ app.config['MONGO_URI'] = os.getenv('MONGO_URI', 'mongodb://localhost:27017/clou
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
 app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'true').lower() in ['true', '1', 't']
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
-app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER')
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', '').strip('"').strip("'") if os.getenv('MAIL_USERNAME') else None
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '').strip('"').strip("'") if os.getenv('MAIL_PASSWORD') else None
+
+sender_env = os.getenv('MAIL_DEFAULT_SENDER')
+if sender_env:
+    sender_env = sender_env.strip('"').strip("'")
+app.config['MAIL_DEFAULT_SENDER'] = sender_env or app.config['MAIL_USERNAME']
 
 mongo = PyMongo(app)
 if mongo.db is None:
