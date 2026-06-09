@@ -408,6 +408,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Warning: Could not initialize MongoDB admin user. Error: {e}")
             
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port, debug=False)
 
 
