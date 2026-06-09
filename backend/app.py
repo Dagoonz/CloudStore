@@ -8,8 +8,6 @@ import json
 import socket
 import threading
 from functools import wraps
-
-socket.setdefaulttimeout(5)
 from flask_pymongo import PyMongo
 from itsdangerous import URLSafeTimedSerializer
 import random
@@ -395,7 +393,7 @@ def download(bucket, filename):
         return jsonify({"error": "Access denied"}), 403
     
     # Return a URL that the frontend can use to stream the decrypted file
-    stream_url = url_for('stream_file', file_id=filename, _external=True)
+    stream_url = url_for('stream_file', file_id=filename)
     return jsonify({"url": stream_url})
 
 
@@ -463,7 +461,7 @@ def preview(bucket, filename):
     if not _is_image(file_record["originalName"]):
         return jsonify({"error": "Not an image"}), 400
 
-    stream_url = url_for('stream_file', file_id=filename, _external=True)
+    stream_url = url_for('stream_file', file_id=filename)
     return jsonify({"url": stream_url})
 
 
