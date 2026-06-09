@@ -29,7 +29,7 @@ app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '').strip('"').strip("'
 sender_env = os.getenv('MAIL_DEFAULT_SENDER')
 if sender_env:
     sender_env = sender_env.strip('"').strip("'")
-app.config['MAIL_DEFAULT_SENDER'] = sender_env or app.config['MAIL_USERNAME']
+app.config['MAIL_DEFAULT_SENDER'] = sender_env or f"CloudStore <{app.config['MAIL_USERNAME']}>"
 
 mongo = PyMongo(app)
 if mongo.db is None:
@@ -144,7 +144,7 @@ def signup():
     # Send OTP Email
     if app.config.get('MAIL_USERNAME'):
         msg = Message("Your CloudStore Verification Code", recipients=[email])
-        msg.body = f"Hello {username},\n\nYour verification code is: {otp}\n\nThis code will expire in 10 minutes."
+        msg.body = f"Hello {username},\n\nYour CloudStore verification code is: {otp}\n\nThis code will expire in 10 minutes."
         threading.Thread(target=send_email_async, args=(app, msg)).start()
         return jsonify({"message": "OTP sent to email", "require_otp": True, "email": email})
     else:
@@ -213,8 +213,8 @@ def forgot_password():
     )
     
     if app.config.get('MAIL_USERNAME'):
-        msg = Message("Password Reset Request", recipients=[email])
-        msg.body = f"Hello {user['username']},\n\nYour password reset code is: {otp}\n\nThis code is valid for 10 minutes. If you did not request this, please ignore this email."
+        msg = Message("Your CloudStore Password Reset Code", recipients=[email])
+        msg.body = f"Hello {user['username']},\n\nYour CloudStore password reset code is: {otp}\n\nThis code is valid for 10 minutes. If you did not request this, please ignore this email."
         threading.Thread(target=send_email_async, args=(app, msg)).start()
         
     return jsonify({"message": "If an account with that email exists, an OTP has been sent.", "require_otp": True, "email": email})
