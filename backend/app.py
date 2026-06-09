@@ -8,6 +8,7 @@ import json
 from functools import wraps
 from flask_pymongo import PyMongo
 from itsdangerous import URLSafeTimedSerializer
+import random
 from flask_mail import Mail, Message
 
 app = Flask(__name__)
@@ -60,6 +61,23 @@ def _is_image(filename: str) -> bool:
 
 # ─── Auth Routes ─────────────────────────────────────────────────────────────
 
+@app.before_request
+def initialize_admin():
+    if not getattr(app, '_admin_initialized', False):
+        try:
+            # We store username as 'admin' because login uses .lower()
+            if not mongo.db.users.find_one({"username": "admin"}):
+                admin_hash = hashlib.sha256("@Admin123".encode()).hexdigest()
+                mongo.db.users.insert_one({
+                    "username": "admin", 
+                    "password_hash": admin_hash, 
+                    "email": "admin@cloudstore.com",
+                    "role": "admin"
+                })
+            app._admin_initialized = True
+        except Exception as e:
+            pass
+
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.get_json()
@@ -80,34 +98,88 @@ def signup():
     password = data.get("password", "")
     email = data.get("email", "").strip()
     
-    if not username or not password:
-        return jsonify({"error": "Username and password required"}), 400
+    if not username or not password or not email:
+        return jsonify({"error": "Username, email, and password required"}), 400
     if len(password) < 6:
         return jsonify({"error": "Password must be at least 6 characters"}), 400
     
     existing_user = mongo.db.users.find_one({"username": username})
     if existing_user:
-        return jsonify({"error": "User already exists"}), 400
+        return jsonify({"error": "Username already taken"}), 400
+        
+    existing_email = mongo.db.users.find_one({"email": email})
+    if existing_email:
+        return jsonify({"error": "Email already in use"}), 400
     
+    # Generate 6-digit OTP
+    otp = str(random.randint(100000, 999999))
     hashed = hashlib.sha256(password.encode()).hexdigest()
+    
+    # Store in pending_users with expiration (e.g. 10 mins)
+    mongo.db.pending_users.update_one(
+        {"email": email},
+        {"$set": {
+            "username": username,
+            "password_hash": hashed,
+            "email": email,
+            "otp": otp,
+            "createdAt": datetime.utcnow()
+        }},
+        upsert=True
+    )
+    
+    # Send OTP Email
+    if app.config.get('MAIL_USERNAME'):
+        try:
+            msg = Message("Your CloudStore Verification Code", recipients=[email])
+            msg.body = f"Hello {username},\n\nYour verification code is: {otp}\n\nThis code will expire in 10 minutes."
+            mail.send(msg)
+            return jsonify({"message": "OTP sent to email", "require_otp": True, "email": email})
+        except Exception as e:
+            return jsonify({"error": "Failed to send OTP email"}), 500
+    else:
+        # Fallback if mail not configured
+        return jsonify({"error": "Email service not configured"}), 500
+
+@app.route("/api/verify-otp", methods=["POST"])
+def verify_otp():
+    data = request.get_json()
+    email = data.get("email", "").strip()
+    otp = data.get("otp", "").strip()
+    
+    if not email or not otp:
+        return jsonify({"error": "Email and OTP required"}), 400
+        
+    pending = mongo.db.pending_users.find_one({"email": email})
+    if not pending:
+        return jsonify({"error": "Session expired or invalid email"}), 400
+        
+    # Check expiration (10 minutes)
+    if datetime.utcnow() - pending["createdAt"] > timedelta(minutes=10):
+        mongo.db.pending_users.delete_one({"email": email})
+        return jsonify({"error": "OTP has expired. Please sign up again."}), 400
+        
+    if pending["otp"] != otp:
+        return jsonify({"error": "Invalid verification code"}), 400
+        
+    # OTP is correct, move to users
     mongo.db.users.insert_one({
-        "username": username,
-        "password_hash": hashed,
-        "email": email if email else None
+        "username": pending["username"],
+        "password_hash": pending["password_hash"],
+        "email": pending["email"]
     })
+    mongo.db.pending_users.delete_one({"email": email})
     
     # Send Welcome Email
-    if email and app.config.get('MAIL_USERNAME'):
-        try:
-            msg = Message("Welcome to CloudStore!", recipients=[email])
-            msg.body = f"Hello {username},\n\nWelcome to CloudStore! Your account has been created successfully."
-            mail.send(msg)
-            print(f"Welcome email sent to {email}")
-        except Exception as e:
-            print(f"Failed to send email: {e}")
-    
-    session["user"] = username
-    return jsonify({"message": "Account created successfully", "user": username})
+    try:
+        msg = Message("Welcome to CloudStore!", recipients=[pending["email"]])
+        msg.body = f"Hello {pending['username']},\n\nWelcome to CloudStore! Your account has been created successfully."
+        mail.send(msg)
+    except Exception:
+        pass
+        
+    session["user"] = pending["username"]
+    return jsonify({"message": "Account created successfully", "user": pending["username"]})
 
 @app.route("/api/forgot-password", methods=["POST"])
 def forgot_password():
@@ -165,6 +237,35 @@ def me():
     if "user" in session:
         return jsonify({"user": session["user"]})
     return jsonify({"user": None})
+
+# ─── Admin Routes ────────────────────────────────────────────────────────────
+
+@app.route("/api/admin/users")
+@login_required
+def admin_users():
+    user = session["user"]
+    if user != "admin":
+        return jsonify({"error": "Forbidden"}), 403
+        
+    users = list(mongo.db.users.find({}, {"_id": 0, "password_hash": 0}))
+    
+    # Aggregate file counts and sizes per user
+    pipeline = [
+        {"$group": {
+            "_id": "$userId", 
+            "fileCount": {"$sum": 1},
+            "totalSize": {"$sum": "$fileSize"}
+        }}
+    ]
+    file_stats = list(mongo.db.files.aggregate(pipeline))
+    stats_map = {stat["_id"]: stat for stat in file_stats}
+    
+    for u in users:
+        stat = stats_map.get(u["username"], {"fileCount": 0, "totalSize": 0})
+        u["fileCount"] = stat["fileCount"]
+        u["totalSize"] = stat["totalSize"]
+        
+    return jsonify(users)
 
 # ─── File Routes ─────────────────────────────────────────────────────────────
 
@@ -406,15 +507,6 @@ def health():
 # ─── Startup ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    with app.app_context():
-        # Create default admin if not exists
-        try:
-            if not mongo.db.users.find_one({"username": "admin"}):
-                admin_hash = hashlib.sha256("admin123".encode()).hexdigest()
-                mongo.db.users.insert_one({"username": "admin", "password_hash": admin_hash})
-        except Exception as e:
-            print(f"Warning: Could not initialize MongoDB admin user. Error: {e}")
-            
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)
 

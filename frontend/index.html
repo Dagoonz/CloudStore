@@ -441,6 +441,24 @@
       </div>
     </div>
 
+    <!-- OTP Verification Form -->
+    <div id="otpForm" style="display:none">
+      <h1>Check Your Email</h1>
+      <p>Enter the 6-digit code sent to your email</p>
+      
+      <div class="field">
+        <label>Verification Code</label>
+        <input type="text" id="otpCode" placeholder="123456" maxlength="6" style="text-align: center; letter-spacing: 0.5em; font-family: var(--mono); font-size: 1.5rem;" />
+      </div>
+      <input type="hidden" id="otpEmail" />
+      
+      <button class="btn-primary" onclick="doVerifyOTP()">Verify & Continue</button>
+      
+      <div class="auth-switch">
+        Wrong email? <a href="#" onclick="toggleAuth('signup')">Go back</a>
+      </div>
+    </div>
+
     <!-- Reset Password Form (Shown if token exists) -->
     <div id="resetForm" style="display:none">
       <h1>New Password</h1>
@@ -500,6 +518,14 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
         Other
       </div>
+      <div id="adminNav" style="display:none;">
+        <div class="nav-divider"></div>
+        <div class="nav-label">Admin</div>
+        <div class="nav-item" onclick="showAdminUsers(this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Users
+        </div>
+      </div>
       <div class="nav-divider"></div>
       <div class="nav-label">Stats</div>
       <div class="sidebar-stats" id="sidebarStats">
@@ -508,55 +534,80 @@
     </aside>
 
     <main>
-      <!-- Upload -->
-      <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()"
-        ondragover="onDrag(event,true)" ondragleave="onDrag(event,false)" ondrop="onDrop(event)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>
-          <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/>
-        </svg>
-        <h3>Drop files here or click to upload</h3>
-        <p>Max 2GB per file · Images, Docs, Videos, and more</p>
-        <div class="progress-wrap" id="progressWrap">
-          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-          <div class="progress-text" id="progressText">Uploading…</div>
+      <div id="filesView">
+        <!-- Upload -->
+        <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()"
+          ondragover="onDrag(event,true)" ondragleave="onDrag(event,false)" ondrop="onDrop(event)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>
+            <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/>
+          </svg>
+          <h3>Drop files here or click to upload</h3>
+          <p>Max 2GB per file · Images, Docs, Videos, and more</p>
+          <div class="progress-wrap" id="progressWrap">
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-text" id="progressText">Uploading…</div>
+          </div>
+          <input type="file" id="fileInput" multiple onchange="uploadFiles(this.files)"/>
         </div>
-        <input type="file" id="fileInput" multiple onchange="uploadFiles(this.files)"/>
-      </div>
 
-      <!-- Folder -->
-      <div class="folder-row">
-        <input type="text" id="folderInput" placeholder="Folder name (optional) — e.g.  project-a/"/>
-        <button class="btn-sm" onclick="createFolder()">+ Create Folder</button>
-      </div>
-
-      <!-- Files -->
-      <div class="section-header">
-        <div class="section-title" id="sectionTitle">All Files</div>
-        <div class="filter-row" id="filterRow">
-          <button class="filter-btn active" onclick="setSort('name',this)">Name</button>
-          <button class="filter-btn" onclick="setSort('size',this)">Size</button>
-          <button class="filter-btn" onclick="setSort('date',this)">Date</button>
-          <button class="filter-btn" onclick="loadFiles()">↻ Refresh</button>
+        <!-- Folder -->
+        <div class="folder-row">
+          <input type="text" id="folderInput" placeholder="Folder name (optional) — e.g.  project-a/"/>
+          <button class="btn-sm" onclick="createFolder()">+ Create Folder</button>
         </div>
-      </div>
-      <input class="search-bar" type="text" placeholder="Search files…" id="searchBar" oninput="renderTable()"/>
 
-      <table id="filesTable">
-        <thead>
-          <tr>
-            <th>File</th>
-            <th>Bucket</th>
-            <th>Owner</th>
-            <th>Size</th>
-            <th>Modified</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="filesBody">
-          <tr><td colspan="6"><div class="empty"><p>Loading files…</p></div></td></tr>
-        </tbody>
-      </table>
+        <!-- Files -->
+        <div class="section-header">
+          <div class="section-title" id="sectionTitle">All Files</div>
+          <div class="filter-row" id="filterRow">
+            <button class="filter-btn active" onclick="setSort('name',this)">Name</button>
+            <button class="filter-btn" onclick="setSort('size',this)">Size</button>
+            <button class="filter-btn" onclick="setSort('date',this)">Date</button>
+            <button class="filter-btn" onclick="loadFiles()">↻ Refresh</button>
+          </div>
+        </div>
+        <input class="search-bar" type="text" placeholder="Search files…" id="searchBar" oninput="renderTable()"/>
+
+        <table id="filesTable">
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Bucket</th>
+              <th>Owner</th>
+              <th>Size</th>
+              <th>Modified</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="filesBody">
+            <tr><td colspan="6"><div class="empty"><p>Loading files…</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Admin Users View -->
+      <div id="usersView" style="display:none;">
+        <div class="section-header">
+          <div class="section-title">Registered Users</div>
+          <div class="filter-row">
+            <button class="filter-btn" onclick="loadUsers()">↻ Refresh</button>
+          </div>
+        </div>
+        <table id="usersTable">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Email</th>
+              <th>Files Uploaded</th>
+              <th>Total Storage</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody">
+            <tr><td colspan="4"><div class="empty"><p>Loading users…</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
     </main>
   </div>
 </div>
@@ -611,7 +662,32 @@ async function doSignup() {
     });
     const d = await r.json();
     if (!r.ok) { err.textContent = d.error; return; }
-    toast('✨ Account created!', 'success');
+    
+    if (d.require_otp) {
+      document.getElementById('otpEmail').value = email;
+      toggleAuth('otp');
+      toast('✓ ' + d.message, 'success');
+    } else {
+      toast('✨ Account created!', 'success');
+      onAuthSuccess(d.user);
+    }
+  } catch(e) { err.textContent = 'Connection error'; }
+}
+
+async function doVerifyOTP() {
+  const email = document.getElementById('otpEmail').value;
+  const otp = document.getElementById('otpCode').value.trim();
+  const err = document.getElementById('loginErr');
+  err.textContent = '';
+  try {
+    const r = await fetch('/api/verify-otp', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email: email, otp: otp})
+    });
+    const d = await r.json();
+    if (!r.ok) { err.textContent = d.error; return; }
+    toast('✨ Account verified and created!', 'success');
     onAuthSuccess(d.user);
   } catch(e) { err.textContent = 'Connection error'; }
 }
@@ -620,8 +696,14 @@ function onAuthSuccess(username) {
   document.getElementById('headerUser').textContent = username;
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
-  loadFiles();
-  loadStats();
+  
+  if (username.toLowerCase() === 'admin') {
+    document.getElementById('adminNav').style.display = 'block';
+  } else {
+    document.getElementById('adminNav').style.display = 'none';
+  }
+  
+  showFilesView();
 }
 
 function toggleAuth(view) {
@@ -629,6 +711,7 @@ function toggleAuth(view) {
   document.getElementById('signupForm').style.display = view === 'signup' ? 'block' : 'none';
   document.getElementById('forgotForm').style.display = view === 'forgot' ? 'block' : 'none';
   document.getElementById('resetForm').style.display = view === 'reset' ? 'block' : 'none';
+  document.getElementById('otpForm').style.display = view === 'otp' ? 'block' : 'none';
   document.getElementById('loginErr').textContent = '';
 }
 
@@ -757,12 +840,53 @@ async function loadFiles() {
   renderTable();
 }
 
+function showFilesView() {
+  document.getElementById('filesView').style.display = 'block';
+  document.getElementById('usersView').style.display = 'none';
+  loadFiles();
+  loadStats();
+}
+
+async function showAdminUsers(el) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('filesView').style.display = 'none';
+  document.getElementById('usersView').style.display = 'block';
+  loadUsers();
+}
+
+async function loadUsers() {
+  const body = document.getElementById('usersBody');
+  body.innerHTML = `<tr><td colspan="4"><div class="empty"><p>Loading users…</p></div></td></tr>`;
+  try {
+    const r = await fetch('/api/admin/users');
+    const users = await r.json();
+    if (!r.ok) throw new Error("Failed to load users");
+    
+    if (!users.length) {
+      body.innerHTML = `<tr><td colspan="4"><div class="empty"><p>No users found</p></div></td></tr>`;
+      return;
+    }
+    
+    body.innerHTML = users.map(u => `
+      <tr>
+        <td><strong>${u.username}</strong></td>
+        <td>${u.email || '—'}</td>
+        <td>${u.fileCount} files</td>
+        <td><span class="file-ext">${formatSize(u.totalSize || 0)}</span></td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    body.innerHTML = `<tr><td colspan="4"><div class="empty"><p>Error loading users</p></div></td></tr>`;
+  }
+}
+
 function filterBucket(bucket, el) {
   activeBucket = bucket;
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('sectionTitle').textContent = el.textContent.trim();
-  loadFiles();
+  showFilesView();
 }
 
 function setSort(key, el) {
