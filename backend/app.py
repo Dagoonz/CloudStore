@@ -275,6 +275,17 @@ def me():
         return jsonify({"user": session["user"]})
     return jsonify({"user": None})
 
+@app.route("/api/test-email")
+def test_email():
+    try:
+        msg = Message("Test Endpoint", recipients=[app.config.get("MAIL_USERNAME")])
+        msg.body = "This is a synchronous test to catch errors."
+        mail.send(msg)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()})
+
 # ─── Admin Routes ────────────────────────────────────────────────────────────
 
 @app.route("/api/admin/users")
