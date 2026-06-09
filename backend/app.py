@@ -5,7 +5,11 @@ import os
 from flask_cors import CORS
 import hashlib
 import json
+import socket
+import threading
 from functools import wraps
+
+socket.setdefaulttimeout(5)
 from flask_pymongo import PyMongo
 from itsdangerous import URLSafeTimedSerializer
 import random
@@ -40,6 +44,13 @@ app.config['MAX_CONTENT_LENGTH'] = 2048 * 1024 * 1024
 
 from services import supabase_storage
 import uuid
+
+def send_email_async(app_instance, msg):
+    with app_instance.app_context():
+        try:
+            mail.send(msg)
+        except Exception as e:
+            print(f"Failed to send async email: {e}")
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -130,13 +141,10 @@ def signup():
     
     # Send OTP Email
     if app.config.get('MAIL_USERNAME'):
-        try:
-            msg = Message("Your CloudStore Verification Code", recipients=[email])
-            msg.body = f"Hello {username},\n\nYour verification code is: {otp}\n\nThis code will expire in 10 minutes."
-            mail.send(msg)
-            return jsonify({"message": "OTP sent to email", "require_otp": True, "email": email})
-        except Exception as e:
-            return jsonify({"error": "Failed to send OTP email"}), 500
+        msg = Message("Your CloudStore Verification Code", recipients=[email])
+        msg.body = f"Hello {username},\n\nYour verification code is: {otp}\n\nThis code will expire in 10 minutes."
+        threading.Thread(target=send_email_async, args=(app._get_current_object(), msg)).start()
+        return jsonify({"message": "OTP sent to email", "require_otp": True, "email": email})
     else:
         # Fallback if mail not configured
         return jsonify({"error": "Email service not configured"}), 500
@@ -171,12 +179,9 @@ def verify_otp():
     mongo.db.pending_users.delete_one({"email": email})
     
     # Send Welcome Email
-    try:
-        msg = Message("Welcome to CloudStore!", recipients=[pending["email"]])
-        msg.body = f"Hello {pending['username']},\n\nWelcome to CloudStore! Your account has been created successfully."
-        mail.send(msg)
-    except Exception:
-        pass
+    msg = Message("Welcome to CloudStore!", recipients=[pending["email"]])
+    msg.body = f"Hello {pending['username']},\n\nWelcome to CloudStore! Your account has been created successfully."
+    threading.Thread(target=send_email_async, args=(app._get_current_object(), msg)).start()
         
     session["user"] = pending["username"]
     return jsonify({"message": "Account created successfully", "user": pending["username"]})
@@ -190,21 +195,51 @@ def forgot_password():
         
     user = mongo.db.users.find_one({"email": email})
     if not user:
-        # Prevent email enumeration by returning a generic success message
-        return jsonify({"message": "If an account with that email exists, a reset link has been sent."})
+        # Prevent email enumeration
+        return jsonify({"message": "If an account with that email exists, an OTP has been sent.", "require_otp": True, "email": email})
         
-    token = s.dumps(email, salt='password-reset-salt')
-    # Generate link to the frontend where the token will be parsed
-    frontend_url = request.headers.get("Origin", "https://cloudstore-one.vercel.app")
-    reset_link = f"{frontend_url}/?reset_token={token}"
+    otp = str(random.randint(100000, 999999))
     
-    try:
+    mongo.db.password_resets.update_one(
+        {"email": email},
+        {"$set": {
+            "email": email,
+            "otp": otp,
+            "createdAt": datetime.utcnow()
+        }},
+        upsert=True
+    )
+    
+    if app.config.get('MAIL_USERNAME'):
         msg = Message("Password Reset Request", recipients=[email])
-        msg.body = f"Hello {user['username']},\n\nTo reset your password, click the following link (valid for 1 hour):\n{reset_link}\n\nIf you did not request this, please ignore this email."
-        mail.send(msg)
-        return jsonify({"message": "If an account with that email exists, a reset link has been sent."})
-    except Exception as e:
-        return jsonify({"error": "Failed to send reset email"}), 500
+        msg.body = f"Hello {user['username']},\n\nYour password reset code is: {otp}\n\nThis code is valid for 10 minutes. If you did not request this, please ignore this email."
+        threading.Thread(target=send_email_async, args=(app._get_current_object(), msg)).start()
+        
+    return jsonify({"message": "If an account with that email exists, an OTP has been sent.", "require_otp": True, "email": email})
+
+@app.route("/api/verify-reset-otp", methods=["POST"])
+def verify_reset_otp():
+    data = request.get_json()
+    email = data.get("email", "").strip()
+    otp = data.get("otp", "").strip()
+    
+    if not email or not otp:
+        return jsonify({"error": "Email and OTP required"}), 400
+        
+    reset = mongo.db.password_resets.find_one({"email": email})
+    if not reset:
+        return jsonify({"error": "Session expired or invalid email"}), 400
+        
+    if datetime.utcnow() - reset["createdAt"] > timedelta(minutes=10):
+        mongo.db.password_resets.delete_one({"email": email})
+        return jsonify({"error": "OTP has expired. Please request a new one."}), 400
+        
+    if reset["otp"] != otp:
+        return jsonify({"error": "Invalid verification code"}), 400
+        
+    mongo.db.password_resets.delete_one({"email": email})
+    token = s.dumps(email, salt='password-reset-salt')
+    return jsonify({"message": "OTP verified", "reset_token": token})
 
 @app.route("/api/reset-password", methods=["POST"])
 def reset_password():

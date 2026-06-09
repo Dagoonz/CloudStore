@@ -722,6 +722,8 @@
 let allFiles = [];
 let activeBucket = null;
 let sortKey = 'name';
+let otpMode = 'signup';
+let resetToken = '';
 
 // ── Auth ───────────────────────────────────────────────────────────────
 async function doLogin() {
@@ -758,6 +760,7 @@ async function doSignup() {
     
     if (d.require_otp) {
       document.getElementById('otpEmail').value = email;
+      otpMode = 'signup';
       toggleAuth('otp');
       toast('✓ ' + d.message, 'success');
     } else {
@@ -773,15 +776,23 @@ async function doVerifyOTP() {
   const err = document.getElementById('loginErr');
   err.textContent = '';
   try {
-    const r = await fetch('/api/verify-otp', {
+    const endpoint = otpMode === 'reset' ? '/api/verify-reset-otp' : '/api/verify-otp';
+    const r = await fetch(endpoint, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({email: email, otp: otp})
     });
     const d = await r.json();
     if (!r.ok) { err.textContent = d.error; return; }
-    toast('✨ Account verified and created!', 'success');
-    onAuthSuccess(d.user);
+    
+    if (otpMode === 'reset') {
+      resetToken = d.reset_token;
+      toast('✓ OTP verified. Please set new password.', 'success');
+      toggleAuth('reset');
+    } else {
+      toast('✨ Account verified and created!', 'success');
+      onAuthSuccess(d.user);
+    }
   } catch(e) { err.textContent = 'Connection error'; }
 }
 
@@ -820,14 +831,17 @@ async function doForgotPassword() {
     });
     const d = await r.json();
     if (!r.ok) { err.textContent = d.error; return; }
+    
+    if (d.require_otp) {
+      document.getElementById('otpEmail').value = email;
+      otpMode = 'reset';
+      toggleAuth('otp');
+    }
     toast('✓ ' + d.message, 'success');
-    toggleAuth('login');
   } catch(e) { err.textContent = 'Connection error'; }
 }
 
 async function doResetPassword() {
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get('reset_token');
   const pass = document.getElementById('resetPass').value;
   const err = document.getElementById('loginErr');
   err.textContent = '';
@@ -835,13 +849,11 @@ async function doResetPassword() {
     const r = await fetch('/api/reset-password', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({token: token, password: pass})
+      body: JSON.stringify({token: resetToken, new_password: pass})
     });
     const d = await r.json();
     if (!r.ok) { err.textContent = d.error; return; }
     toast('✓ Password updated!', 'success');
-    // Remove token from URL
-    window.history.replaceState({}, document.title, window.location.pathname);
     toggleAuth('login');
   } catch(e) { err.textContent = 'Connection error'; }
 }
