@@ -40,6 +40,11 @@ import uuid
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
