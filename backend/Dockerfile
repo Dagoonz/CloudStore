@@ -12,5 +12,5 @@ COPY . .
 # Expose port 5000 for gunicorn
 EXPOSE 5000
 
-# Run the app with Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "3", "app:app"]
+# Use shell form to allow $PORT variable expansion
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 3 app:app
