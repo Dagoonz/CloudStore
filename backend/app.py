@@ -141,7 +141,7 @@ def signup():
     if app.config.get('MAIL_USERNAME'):
         msg = Message("Your CloudStore Verification Code", recipients=[email])
         msg.body = f"Hello {username},\n\nYour verification code is: {otp}\n\nThis code will expire in 10 minutes."
-        threading.Thread(target=send_email_async, args=(app._get_current_object(), msg)).start()
+        threading.Thread(target=send_email_async, args=(app, msg)).start()
         return jsonify({"message": "OTP sent to email", "require_otp": True, "email": email})
     else:
         # Fallback if mail not configured
@@ -179,7 +179,7 @@ def verify_otp():
     # Send Welcome Email
     msg = Message("Welcome to CloudStore!", recipients=[pending["email"]])
     msg.body = f"Hello {pending['username']},\n\nWelcome to CloudStore! Your account has been created successfully."
-    threading.Thread(target=send_email_async, args=(app._get_current_object(), msg)).start()
+    threading.Thread(target=send_email_async, args=(app, msg)).start()
         
     session["user"] = pending["username"]
     return jsonify({"message": "Account created successfully", "user": pending["username"]})
@@ -211,7 +211,7 @@ def forgot_password():
     if app.config.get('MAIL_USERNAME'):
         msg = Message("Password Reset Request", recipients=[email])
         msg.body = f"Hello {user['username']},\n\nYour password reset code is: {otp}\n\nThis code is valid for 10 minutes. If you did not request this, please ignore this email."
-        threading.Thread(target=send_email_async, args=(app._get_current_object(), msg)).start()
+        threading.Thread(target=send_email_async, args=(app, msg)).start()
         
     return jsonify({"message": "If an account with that email exists, an OTP has been sent.", "require_otp": True, "email": email})
 
